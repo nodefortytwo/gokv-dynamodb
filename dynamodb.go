@@ -3,11 +3,10 @@ package dynamodb
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	awsdynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
 
@@ -113,7 +112,7 @@ func (c Client) Delete(k string) error {
 		TableName: &c.tableName,
 		Key:       key,
 	}
-	_, err := c.c.DeleteItem(&deleteItemInput)
+	_, err := c.svc.DeleteItem(&deleteItemInput)
 	return err
 }
 
@@ -161,12 +160,11 @@ func NewClient(options Options) (Client, error) {
 	if options.TableName == "" {
 		return result, errors.New("no options.TableName specified")
 	}
-	if options.Codec == nil {
-		options.Codec = DefaultOptions.Codec
-	}
 
 	if options.AWSConfig == nil {
-		options.AWSConfig = &aws.Config{}
+		options.AWSConfig = &aws.Config{
+			Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")),
+		}
 	}
 
 	if options.Session == nil {
@@ -183,7 +181,7 @@ func NewClient(options Options) (Client, error) {
 	describeTableInput := awsdynamodb.DescribeTableInput{
 		TableName: &options.TableName,
 	}
-	_, err = svc.DescribeTableWithContext(timeoutCtx, &describeTableInput)
+	_, err := svc.DescribeTableWithContext(timeoutCtx, &describeTableInput)
 	if err != nil {
 		return result, err
 	}
