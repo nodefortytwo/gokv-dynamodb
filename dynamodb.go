@@ -3,12 +3,10 @@ package dynamodb
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	awsdynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
 
 	"github.com/philippgille/gokv/encoding"
 	"github.com/philippgille/gokv/util"
@@ -22,7 +20,7 @@ var valAttrName = "v"
 
 // Client is a gokv.Store implementation for DynamoDB.
 type Client struct {
-	svc       *awsdynamodb.DynamoDB
+	svc       dynamodbiface.DynamoDBAPI
 	tableName string
 	codec     encoding.Codec
 }
@@ -124,16 +122,8 @@ func (c Client) Close() error {
 
 // Options are the options for the DynamoDB client.
 type Options struct {
-	Session   *session.Session
-	AWSConfig *aws.Config
 	TableName string
-	// CustomEndpoint allows you to set a custom DynamoDB service endpoint.
-	// This is especially useful if you're running a "DynamoDB local" Docker container for local testing.
-	// Typical value for the Docker container: "http://localhost:8000".
-	// See https://hub.docker.com/r/amazon/dynamodb-local/.
-	// Optional ("" by default)
-	CustomEndpoint string
-	// Encoding format.
+	Service dynamodbiface.DynamoDBAPI
 	// Optional (encoding.JSON by default).
 	Codec encoding.Codec
 }
@@ -148,32 +138,20 @@ var DefaultOptions = Options{
 }
 
 // NewClient creates a new DynamoDB client.
-//
-// Credentials can be set in the options, but it's recommended to either use the shared credentials file
-// (Linux: "~/.aws/credentials", Windows: "%UserProfile%\.aws\credentials")
-// or environment variables (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY).
-// See https://github.com/awsdocs/aws-go-developer-guide/blob/0ae5712d120d43867cf81de875cb7505f62f2d71/doc_source/configuring-sdk.rst#specifying-credentials.
 func NewClient(options Options) (Client, error) {
 	result := Client{}
+
+	if options.Service == nil {
+		return result, errors.New("no dynamodb service provided")
+	}
+	result.svc = options.Service
 
 	// Set default values
 	if options.TableName == "" {
 		return result, errors.New("no options.TableName specified")
 	}
+	result.tableName = options.TableName
 
-	if options.AWSConfig == nil {
-		options.AWSConfig = &aws.Config{
-			Region: aws.String(os.Getenv("AWS_DEFAULT_REGION")),
-		}
-	}
-
-	if options.Session == nil {
-		options.Session = session.Must(session.NewSession())
-	}
-
-	svc := awsdynamodb.New(options.Session, options.AWSConfig)
-
-	// Create table if it doesn't exist.
 	// Also serves as connection test.
 	// Use context for timeout.
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -181,13 +159,11 @@ func NewClient(options Options) (Client, error) {
 	describeTableInput := awsdynamodb.DescribeTableInput{
 		TableName: &options.TableName,
 	}
-	_, err := svc.DescribeTableWithContext(timeoutCtx, &describeTableInput)
+	_, err := result.svc.DescribeTableWithContext(timeoutCtx, &describeTableInput)
 	if err != nil {
 		return result, err
 	}
 
-	result.svc = svc
-	result.tableName = options.TableName
 	result.codec = options.Codec
 
 	return result, nil
