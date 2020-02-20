@@ -3,26 +3,31 @@ package dynamodb
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	awsdynamodb "github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface"
-
 	"github.com/philippgille/gokv/encoding"
 	"github.com/philippgille/gokv/util"
 )
 
 // "k" is used as table column name for the key.
-var keyAttrName = "k"
+const keyAttrName = "k"
 
 // "v" is used as table column name for the value.
-var valAttrName = "v"
+const valAttrName = "v"
+
+// "ttl" is used as table column name for the ttl of the item.
+const ttlAttrName = "ttl"
 
 // Client is a gokv.Store implementation for DynamoDB.
 type Client struct {
 	svc       dynamodbiface.DynamoDBAPI
 	tableName string
 	codec     encoding.Codec
+	ttl time.Duration
 }
 
 // Set stores the given value for the given key.
@@ -46,6 +51,14 @@ func (c Client) Set(k string, v interface{}) error {
 	item[valAttrName] = &awsdynamodb.AttributeValue{
 		B: data,
 	}
+
+	if c.ttl > 0 {
+		ttl := time.Now().Add(c.ttl).Unix()
+		item[ttlAttrName] = &awsdynamodb.AttributeValue{
+			N: aws.String(strconv.Itoa(int(ttl))),
+		}
+	}
+
 	putItemInput := awsdynamodb.PutItemInput{
 		TableName: &c.tableName,
 		Item:      item,
@@ -126,6 +139,7 @@ type Options struct {
 	Service dynamodbiface.DynamoDBAPI
 	// Optional (encoding.JSON by default).
 	Codec encoding.Codec
+	TTL time.Duration
 }
 
 // DefaultOptions is an Options object with default values.
@@ -164,7 +178,13 @@ func NewClient(options Options) (Client, error) {
 		return result, err
 	}
 
-	result.codec = options.Codec
+	if options.Codec != nil {
+		result.codec = options.Codec
+	}else{
+		result.codec = DefaultOptions.Codec
+	}
+
+	result.ttl = options.TTL
 
 	return result, nil
 }
